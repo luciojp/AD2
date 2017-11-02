@@ -1,0 +1,171 @@
+---
+title: "P01CP03AD2"
+author: "Antonio Lúcio"
+date: "2 de novembro de 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+```{r}
+library(dplyr, warn.conflicts = FALSE)
+library(ggplot2)
+library(datasets)
+library(highcharter)
+```
+
+```{r}
+ceap = read.csv("dadosCEAP.csv", encoding = "UTF-8")
+```
+
+
+```{r}
+
+gastoPorDep <- ceap %>% select(nomeParlamentar, sgPartido, valorDocumento) %>%
+  group_by(nomeParlamentar, sgPartido) %>% summarise(totalGasto = sum(valorDocumento))
+
+revistasAss <- ceap %>% filter(tipoDespesa %in% c("ASSINATURA DE PUBLICAÇÕES")) %>% 
+  group_by(nomeParlamentar) %>% count(nomeParlamentar) %>% mutate(numAss = n) %>%
+  select(nomeParlamentar, numAss)
+
+revistasDif <- ceap %>% select(nomeParlamentar, tipoDespesa, fornecedor) %>% 
+  filter(tipoDespesa %in% c("ASSINATURA DE PUBLICAÇÕES")) %>% group_by(nomeParlamentar) %>% 
+  summarise(qtdDif = n_distinct(fornecedor))
+
+
+deputadosRevistas <- merge(revistasAss, revistasDif)
+
+#deputados <- merge(gastoPorDep, deputadosRevistas)
+
+deputadosQueAssinam <- merge(gastoPorDep, deputadosRevistas)
+
+deputados <- merge(x = gastoPorDep, y = deputadosRevistas, by = "nomeParlamentar", all.x = TRUE) %>% na.omit()
+
+deputados <- deputados %>% mutate(numAss = ifelse(is.na(numAss),0,numAss))
+deputados <- deputados %>% mutate(qtdDif = ifelse(is.na(qtdDif),0,qtdDif))
+
+deputadosMaisAssinam <- deputados %>% filter(numAss > 20)
+deputadosMenosAssinam <- deputados %>% filter(numAss < 20)
+
+partidosMaiores <- deputados %>% filter(sgPartido %in% c("PMDB", "PT", "PP", "PSDB", "PSD", "PR"))
+partidosMenores <- deputados %>% filter(sgPartido %in% c("PRB", "PDT", "REDE", "PCdoB", "PSC", "PSOL"))
+
+```
+
+```{r}
+#assinantesOrdenados <- deputadosQueAssinam[order(deputadosQueAssinam[,5] ),] 
+#assinantesOrdenados <- deputadosQueAssinam %>% na.omit() %>% filter(numAss > 20)
+#assinantesMaioresPartidos <- deputadosQueAssinam %>% filter(sgPartido %in% c("PT", "PMDB", "PSDB", "PSOL"))
+
+```
+
+#Análise dos gastos dos deputados federais com sua cota parlamentar
+
+Quem nunca teve a curiosidade de saber o quanto gasta cada deputado federal e com que ele gasta? Pois bem, cada um deles tem uma cota para gastar com suas atividades parlamentares. Ou seja, tem a disposição uma cota única mensal que é destinada a custear os seus gastos exclusivamente vinculados ao exercício da atividade parlamentar.
+
+Analisando os dados dos gastos da cota parlamentar, observei que uma das áreas em que os deputados menos gastam sua cota é a de assinaturas e publicações de revistas e jornais. Tendo esta informação como ponto de partida, decidi investigar um pouco mais sobre, e surgiram algumas perguntas:
+
+
+
+####- Existe alguma relação entre os gastos totais de um deputado e a quantidade de revistas que ele assina? Ou seja, será que quanto mais um deputado gasta no total mais ele tende a assinar revistas? 
+
+OBS: Todos os gráficos são interativos e você pode desabilitar a visualização de algum partido apenas clicando no nome do mesmo no rodapé do gráfico.
+
+```{r}
+hchart(deputados, "scatter", hcaes(x = numAss, y = totalGasto , group = sgPartido)) %>%
+  hc_yAxis(
+    title = list(text = "Total gasto pelo deputado com sua cota")
+  ) %>% 
+  hc_xAxis(
+    title = list(text = "Número de revistas assinadas por um deputado")
+    ) %>%
+  hc_title(
+    text = "Relação quantidade revistas assinadas e o total gasto"
+  ) 
+
+```
+
+Resposta: Observamos que não há uma relação entre quantidade de revistas assinadas e o gasto total de um deputado, ou seja, não é possível dizer que quanto maior o gasto do deputado, mais revistas/jornais ele lê (por exemplo).
+
+####- Existe alguma relação de deputados do mesmo partido terem a mesma quantidade de revistas assinadas? 
+
+Para facilitar a visualização, selecionei 6 partidos grandes (em número de deputados) e 6 partidos pequenos. 
+
+```{r}
+hchart(partidosMaiores, "scatter", hcaes(x = numAss, y = qtdDif , group = sgPartido)) %>%
+  hc_yAxis(
+    title = list(text = "Número de revistas diferentes assinadas")
+  ) %>% 
+  hc_xAxis(
+    title = list(text = "Número de revistas assinadas por um deputado")
+    ) %>%
+  hc_title(
+    text = "Comportamente dos deputados de partidos grandes"
+  ) 
+
+```
+
+
+```{r}
+hchart(partidosMenores, "scatter", hcaes(x = numAss, y = qtdDif , group = sgPartido)) %>%
+  hc_yAxis(
+    title = list(text = "Número de revistas diferentes assinadas")
+  ) %>% 
+  hc_xAxis(
+    title = list(text = "Número de revistas assinadas por um deputado")
+    ) %>%
+  hc_title(
+    text = "Comportamente dos deputados de partidos pequenos"
+  ) 
+
+```
+
+
+Resposta: Com exceção de alguns, podemos observar que há sim um certa proximidade entre os deputados de um mesmo partido com relação a quantidade de revistas assinadas e variedade de revistas. Um fato a se observar é que apesar do PT ser o segundo maior partido, o seus deputados assinam poucas revistas. Já o partido REDE, que tem apenas 4 deputados tem uma quantidade de assinaturas elevada (se comparada aos demais partidos pequenos) e de diferentes revistas. 
+
+Lembrando que é possível visualizar apenas os partidos desejados, clicando no nome dos partidos no rodapé do gráfico, assim facilitando comparações.
+
+####É possível inferir diferenças no posicionamento político dos partidos a partir da quantidade de revistas que os deputados assinam?
+
+Para facilitar a visualização, separei de forma proposital partidos que são "rivais".
+
+
+```{r}
+selecaoNumAss <- deputados %>% group_by(sgPartido) %>% 
+  filter(sgPartido %in% c("PCdoB", "PT", "PMDB", "PSOL", "PSDB", "REDE")) %>% summarise(numAss = sum(numAss))
+
+selecaoQtdPartido <- deputados %>% 
+  filter(sgPartido %in% c("PCdoB", "PT", "PMDB", "PSOL", "PSDB", "REDE")) %>% group_by(sgPartido) %>% count(sgPartido)
+
+selecaoQtdDif <- deputados %>% 
+  filter(sgPartido %in% c("PCdoB", "PT", "PMDB", "PSOL", "PSDB", "REDE")) %>%   
+  group_by(sgPartido) %>% summarise(qtdDif = sum(qtdDif))
+
+selecaoPartidos = merge(selecaoNumAss,selecaoQtdPartido)
+
+selecaoPartidos = merge(selecaoPartidos, selecaoQtdDif)
+
+selecaoPartidos <- selecaoPartidos %>% mutate(mediaNumAss = (numAss/n)) %>% mutate(mediaqtd = (qtdDif/n)) 
+
+```
+
+```{r}
+hchart(selecaoPartidos, "scatter", hcaes(x = mediaNumAss, y = mediaqtd, z=n, group = sgPartido)) %>%
+  hc_yAxis(
+    title = list(text = "Média de revistas diferentes assinadas pelo partido")
+  ) %>% 
+  hc_xAxis(
+    title = list(text = "Média do número de revistas assinadas pelo partido")
+    ) %>%
+  hc_title(
+    text = "Proximidade do posicionamento político entre os partidos"
+  ) 
+```
+
+OBS: O tamanho do círculo é o número de deputados daquele partido que assinam alguma revista.
+
+Resposta: Pelo gráfico acima podemos observar que os partidos com maior proximidade são o PMDB e o PSDB, estando o PT e o PSOL por perto deles e os mais distantes de todo o resto são o PCdoB e o REDE. Respostas essas que se aproximam da realidade, então podemos afirmar que para os casos em que há uma divergência mais clara entre partidos, é possível sim inferir diferenças no posicionamento político a partir das revistas.
+
+

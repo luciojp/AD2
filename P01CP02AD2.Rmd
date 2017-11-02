@@ -1,0 +1,260 @@
+---
+title: "P01CP02AD2"
+author: "Antonio Lúcio"
+date: "25 de outubro de 2017"
+output:
+  html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+
+```{r}
+library(dplyr, warn.conflicts = FALSE)
+library(ggplot2)
+library(datasets)
+library(highcharter)
+```
+
+```{r}
+dados = read.csv("dadosCEAP.csv", encoding = "UTF-8")
+```
+
+```{r}
+limiteMensal = read.csv("limiteMensalCEAP.csv", encoding = "UTF-8")
+```
+
+
+
+#Análise de gastos dos deputados federais
+
+Quem nunca teve a curiosidade de saber o quanto gasta cada deputado federal e com que ele gasta? Pois bem, cada um deles tem uma cota para gastar com suas atividades parlamentares. Ou seja, tem a disposição uma cota única mensal que é destinada a custear os seus gastos exclusivamente vinculados ao exercício da atividade parlamentar. Sabendo disto, vamos responder algumas perguntas relacionadas ao assunto.
+
+
+
+###Quais os partidos que mais fazem uso da cota? E o quanto foi gasto no total por partido?
+
+
+
+```{r}
+gastosPartidos <- dados %>% select(sgPartido, valorDocumento) %>% 
+  group_by(sgPartido) %>% summarise(totalGasto = sum(valorDocumento))
+
+usosPartidos <- dados %>% select(sgPartido, valorDocumento) %>% 
+  group_by(sgPartido) %>% count(sgPartido)
+
+partidos <- merge(gastosPartidos, usosPartidos)
+partidosOrdenados <- partidos[order( partidos[,3] ),]
+ 
+maioresGastadores <- partidosOrdenados %>% top_n(10)
+menoresGastadores <- partidosOrdenados %>% top_n(-10)
+```
+
+
+```{r}
+
+hchart(maioresGastadores, "scatter", hcaes(x = n, y = totalGasto, group = sgPartido)) %>%
+  hc_yAxis(
+    title = list(text = "Valor total da cota gasto")
+  ) %>% 
+  hc_xAxis(
+    title = list(text = "Número de usos da cota")
+    ) %>%
+  hc_title(
+    text = "Os 10 partidos que mais fazem uso da cota e o quanto foi gasto por partido"
+  )
+
+```
+
+
+###Quais os partidos que menos fazem uso da cota? E o quanto foi gasto no total por partido?
+```{r}
+hchart(menoresGastadores, "scatter", hcaes(x = n, y = totalGasto, group = sgPartido)) %>%
+  hc_yAxis(
+    title = list(text = "Valor total da cota gasto")
+  ) %>% 
+  hc_xAxis(
+    title = list(text = "Número de usos da cota")
+    ) %>%
+  hc_title(
+    text = "Os 10 partidos que menos fazem uso da cota e o quanto foi gasto por partido"
+  )
+
+```
+
+- OBS: O partido com o nome de "séries 10" é a soma de todos os gastos declarados em que o nome do partido não está presente. Como o gasto existe, é relevante mostra-ló, ainda mais tendo em vista que é superior a outros partidos. O motivo desta ausência é uma questão a ser pesquisada.
+
+```{r}
+totalGastoTipo <- dados %>% select(tipoDespesa, valorDocumento) %>%
+  group_by(tipoDespesa) %>% summarise(totalGasto = sum(valorDocumento))
+
+usosPorTipo <- dados %>% select(tipoDespesa, valorDocumento) %>% 
+  group_by(tipoDespesa) %>% count(tipoDespesa)
+
+tipo <- merge(totalGastoTipo, usosPorTipo)
+tipoOrdenado <- tipo[order( tipo[,3] ),]
+
+tiposMaisComuns <- tipoOrdenado %>% top_n(10)
+
+```
+
+###Das despesas realizadas pelos nossos deputados, qual a despesa mais comum? E qual foi o total gasto? 
+```{r}
+
+hchart(tiposMaisComuns, "scatter", hcaes(x = n, y = totalGasto, group = tipoDespesa)) %>%
+  hc_yAxis(
+    title = list(text = "Valor gasto com o tipo de despesa")
+  ) %>% 
+  hc_xAxis(
+    title = list(text = "Quantidade de despesas com este tipo")
+    ) %>%
+  hc_title(
+    text = "Os 10 tipos de despesas mais comuns e o total gasto"
+  ) 
+
+```
+
+
+```{r}
+gastosEstado <- dados %>% select(sgUF, valorDocumento) %>%
+  group_by(sgUF) %>% summarise(totalGasto = sum(valorDocumento))
+
+usosEstado <- dados %>% select(sgUF, valorDocumento) %>% 
+  group_by(sgUF) %>% count(sgUF)
+
+estado <- merge(gastosEstado, usosEstado)
+estadoOrdenado <- estado[order(estado[,3]),]
+
+estadosMaisGastadores <- estadoOrdenado %>% top_n(10)
+estadosMenosGastadores <- estadoOrdenado %>% top_n(-10)
+
+```
+
+###Levando em conta o estado pelo qual foi eleito o deputado, qual o estado que mais faz uso e o quanto gastou? 
+```{r}
+
+hchart(estadosMaisGastadores, "scatter", hcaes(x = n, y = totalGasto, group = sgUF)) %>%
+  hc_yAxis(
+    title = list(text = "Valor total gasto no estado")
+  ) %>% 
+  hc_xAxis(
+    title = list(text = "Quantidade de usos da cota para o estado")
+    ) %>%
+  hc_title(
+    text = "Os 10 estados que mais fazem uso da cota e o quanto foi gasto por estado"
+  )
+
+```
+
+###Levando em conta o estado pelo qual foi eleito o deputado, qual o estado que menos faz uso e o quanto gastou? 
+```{r}
+
+hchart(estadosMenosGastadores, "scatter", hcaes(x = n, y = totalGasto, group = sgUF)) %>%
+  hc_yAxis(
+    title = list(text = "Valor total gasto no estado")
+  ) %>% 
+  hc_xAxis(
+    title = list(text = "Quantidade de usos da cota para o estado")
+    ) %>%
+  hc_title(
+    text = "Os 10 estados que menos fazem uso da cota e o quanto foi gasto por estado"
+  )
+
+```
+
+- Há uma certa proporcionalidade entre gastos do estado e a quantidade de habitantes dele. Ou  seja, quanto mais habitantes o estado tem, mais gastos e quantidades de usos da cota.
+- Uma observação a ser feita é que o estado chamado "Series 10" são os gastos que não contém informação do estado do político que fez o gasto.
+
+
+
+```{r}
+deputadosGastos <- dados %>% select(nomeParlamentar, valorDocumento) %>%
+  group_by(nomeParlamentar) %>% summarise(totalGasto = sum(valorDocumento))
+
+deputadosGastosOrdenados <- deputadosGastos[order(deputadosGastos$totalGasto),]
+
+deputadoMaisGastadores <- deputadosGastosOrdenados %>% top_n(20)
+deputadoMenosGastadores <- deputadosGastosOrdenados %>% top_n(-20)
+
+```
+
+###Quais os deputados que mais gastam com sua cota parlamentar?
+```{r}
+
+hchart(deputadoMaisGastadores, "column", hcaes(x = nomeParlamentar, y = totalGasto))%>%
+  hc_yAxis(
+    title = list(text = "Valor total gasto pelo deputado")
+  ) %>% 
+  hc_xAxis(
+    title = list(text = "Nome do deputado")
+    ) %>%
+  hc_title(
+    text = "Os 10 deputados que mais gastam com sua cota parlamentar"
+  )
+
+```
+
+###Quais os deputados que menos gastam com sua cota parlamentar?
+```{r}
+
+hchart(deputadoMenosGastadores, "column", hcaes(x = nomeParlamentar, y = totalGasto))%>%
+  hc_yAxis(
+    title = list(text = "Valor total gasto pelo deputado")
+  ) %>% 
+  hc_xAxis(
+    title = list(text = "Nome do deputado")
+    ) %>%
+  hc_title(
+    text = "Os 10 deputados que menos gastam com sua cota parlamentar"
+  )
+
+```
+
+- OBS: É interessante investigar o motivo de existir deputados com gastos "negativos".
+
+
+```{r}
+
+gastosExterior <- dados %>% select(tipoDocumento, valorDocumento, sgUF) %>% filter(tipoDocumento %in% c("2")) %>%
+  group_by(sgUF) %>% summarise(totalGasto = sum(valorDocumento))
+
+relacao <- merge(usosEstado, gastosExterior)
+
+relacao <- relacao[order(relacao[,3]),]
+
+```
+
+###Observando pelos partidos, existe correlação entre a quantidade de gastos no exterior e o valor total gasto pelo partido(de forma geral)? 
+
+```{r}
+ggplot(relacao, aes(x=n, y=totalGasto)) +
+    geom_point(shape=1) +
+    geom_smooth(method=lm) + 
+  labs(title = "Correlação entre quantidade de gastos no exterior e total gasto (por partido) ", x = "Quantidade de gastos no exterior", y = "Total gasto pelo partido")
+
+```
+
+
+Se desconsiderarmos os partidos que menos tem quantidade de gastos no exterior, observamos uma certa correlação entre o total gasto pelo partido e gastos no exterior. 
+
+
+
+###Quais os estados cujos deputados mais gastam no exterior? E os que gastam menos?
+```{r}
+
+
+hchart(relacao, "column", hcaes(x = sgUF, y = totalGasto)) %>%
+  hc_yAxis(
+    title = list(text = "Valor total gasto no exterior")
+  ) %>% 
+  hc_xAxis(
+    title = list(text = "Sigla do estado")
+    ) %>%
+  hc_title(
+    text = "Estados cujos deputados mais/menos realizam gastos no exterior?"
+  )
+```
+
+
