@@ -200,8 +200,21 @@ escolhaModelo
 ```
 
 ```{r}
-summaryConjuntos$which[escolhaModelo,]
+respostas <- summaryConjuntos$which[escolhaModelo,]
+dfResposta <- data.frame(respostas)
+dfResposta
 ```
 
-Como podemos ver acima, nem todas as variáveis do modelo são boas para fazer a predição.
+Como podemos ver acima, nem todas as variáveis do modelo são boas para fazer a predição. No caso, as variáveis que melhor explicam(utilizando leaps para encontrar o melhor subconjunto associado ao R² ajustado) o número de votos são: 
+
+- Quantidade_doadores
+- Total_receita
+- Media_receita
+- recursos_de_outros_candidatos.comites 
+- recursos_de_partidos
+- recursos_de_pessoas_físicas
+- recursos_de_pessoas_juridicas
+- recursos_proprios
+- media_despesa  
+
 
