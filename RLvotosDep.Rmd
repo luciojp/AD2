@@ -1,0 +1,207 @@
+---
+title: "RLVotosDep"
+author: "Antonio Lúcio"
+date: "28 de novembro de 2017"
+output: html_document
+---
+
+```{r}
+knitr::opts_chunk$set(echo = TRUE, warning=FALSE, message=FALSE)
+```
+
+
+```{r}
+library(dplyr)
+library(readr)
+library(knitr)
+library(highcharter)
+library(Amelia)
+library(tidyr)
+library(corrplot)
+library(leaps)
+library(ggplot2)
+library(fBasics)
+```
+
+```{r}
+eleicoes <- read.csv("eleicoes2014.csv", encoding = "latin1")
+```
+
+Após os dados serem carregados, foi observado que muitas células da tabela de dados estão vazias, o que prejudica o andamento do laboratório, assim precisamos corrigir. As colunas mais afetadas são recursos_de_outros_candidatos.comites, recursos_de_partidos, recursos_de_pessoas_físicas, recursos_de_pessoas_juridicas e recursos_proprios. 
+
+Antes de decidir como corrigir, vamos visualizar apenas os dados destas colunas:
+
+```{r}
+dadosComProblemas <- eleicoes %>% select(recursos_de_outros_candidatos.comites, recursos_de_partidos, recursos_de_pessoas_físicas, recursos_de_pessoas_juridicas, recursos_proprios)
+
+summary(dadosComProblemas)
+```
+
+Como podemos observar acima, existem muitos NA's nas colunas (como já tinha sido dito) e há uma grande difereça da média para mediana nas colunas, ou seja, existem muitos outliers que terminam influenciando muito na média. Para solucionar o problema das células com NA's, irei preenchê-las com a mediana(não utilizarei a média pelos problemas citados acima) da sua respectiva coluna. 
+
+```{r}
+
+eleicoes$recursos_de_outros_candidatos.comites[is.na(eleicoes$recursos_de_outros_candidatos.comites)]<-median (eleicoes$recursos_de_outros_candidatos.comites, na.rm = TRUE)
+
+eleicoes$recursos_proprios[is.na(eleicoes$recursos_proprios)]<-median (eleicoes$recursos_proprios, na.rm = TRUE)
+
+eleicoes$recursos_de_pessoas_físicas[is.na(eleicoes$recursos_de_pessoas_físicas)]<-median (eleicoes$recursos_de_pessoas_físicas, na.rm = TRUE)
+
+eleicoes$recursos_de_pessoas_juridicas[is.na(eleicoes$recursos_de_pessoas_juridicas)]<-median (eleicoes$recursos_de_pessoas_juridicas, na.rm = TRUE)
+
+eleicoes$recursos_de_partidos[is.na(eleicoes$recursos_de_partidos)]<-median (eleicoes$recursos_de_partidos, na.rm = TRUE)
+
+```
+
+Bem, agora que o problema foi corrigido, vamos ao lab.
+
+####Um modelo de regressão múltipla com todas as variáveis é plausível para explicar a variação em y (número de votos)? Justifique sua resposta.
+
+Para verificarmos se é plausível utilizar todas as variáveis, utilizaremos o p-valor. Se o p-valor for maior que 0,05 indica que a probabilidade da causalidade entre a variável e a quantidade de votos ser aleatória é grande, ou seja, não é ideal para predizer a quantidade de votos.
+
+Porém, antes disso, precisamos ajustar algumas variáveis categóricas, as tornando numéricas e ainda excluir dos dados algumas informações que não nos ajudarão, como por exemplo sequencial do candidato, nome, número candidato, cargo.(que foram retirados por serem únicos) e setor econômico receita/despesa (por serem muitos níveis)
+
+```{r}
+#Retirados as colunas que não são necessárias
+dadosFiltrados <- eleicoes %>% select(-nome, -sequencial_candidato, -numero_cadidato, -cargo, -setor_economico_receita, -setor_economico_despesa)
+
+#Transformando variável sexo em numérica, onde Feminino=1 e Masculino=2 
+dadosFiltrados$sexo <- as.numeric(dadosFiltrados$sexo)
+
+#Transformando variável grau (nível de estudo), onde: 
+#1 = Ensino Fundamental Completo ;   2 = Ens. Fund. Incomp.  ; 3 = Ens. Médio Comp.; 4 = Ens. Médio Incomp.
+#5 = Lê e escreve ; 6 = Sup. Completo  ; 7 = Superior Incompleto.
+dadosFiltrados$grau <- as.numeric(dadosFiltrados$grau)
+
+#Transformando variável estado civil em numérica, onde:
+#1= Casado ; 2= Divorciado(a) ; 3= Separado(a) judicialmente ; 4= Solteiro(a) ; 5 = Viúvo(a)
+dadosFiltrados$estado_civil <-as.numeric(dadosFiltrados$estado_civil)
+
+#1 = AC, 2 = AL, 3 = AM, 4 = AP, 5 = BA, 6 = CE, 7= DF, 8=ES, 9=GO, 10=MA, 11=MG, 12=MS, 13=MT, 
+#14=PA, 15=PB, 16=PE, 17=PI, 18=PR, 19=RJ, 20=RN, 21=RO, 22=RR, 23=RS, 24=SC, 25=SE, 26=SP,27=TO
+dadosFiltrados$UF <-as.numeric(dadosFiltrados$UF)
+
+#1=DEM, 2=PC do B, 3=PCB, 4=PCO, 5=PDT, 6=PEN, 7=PHS, 8=PMDB, 9 =PMN, 10=PP, 11=PPL, 12=PPS, 13=PR, 14=PRB, 15=PROS, #16=PRP, 17=PRTB, 18=PSB, 19=PSC, 20=PSD, 21=PSDB, 22=PSDC, 23=PSL, 24=PSOL, 25=PSTU, 26=PT, 27=PT do B, 28=PTB, #29=PTC, 30=PTN, 31=PV, 32=SD
+dadosFiltrados$partido <-as.numeric(dadosFiltrados$partido)
+
+dadosFiltradosCompletos <- dadosFiltrados
+
+```
+
+Agora que dispensamos as colunas que não ajudam a responder e transformamos as colunas que continham variáveis categóricas em numéricas, vamos calcular o p-valor das colunas com relação a coluna de votos. 
+
+
+```{r}
+t.test (dadosFiltrados$UF,dadosFiltrados$votos) 
+t.test (dadosFiltrados$partido,dadosFiltrados$votos)
+t.test (dadosFiltrados$quantidade_doacoes,dadosFiltrados$votos)
+t.test (dadosFiltrados$quantidade_doadores,dadosFiltrados$votos)
+t.test (dadosFiltrados$total_receita,dadosFiltrados$votos)
+t.test (dadosFiltrados$media_receita,dadosFiltrados$votos)
+t.test (dadosFiltrados$recursos_de_outros_candidatos.comites,dadosFiltrados$votos)
+t.test (dadosFiltrados$recursos_de_partidos,dadosFiltrados$votos)
+t.test (dadosFiltrados$recursos_de_pessoas_físicas,dadosFiltrados$votos)
+t.test (dadosFiltrados$recursos_de_pessoas_juridicas,dadosFiltrados$votos)
+t.test (dadosFiltrados$recursos_proprios,dadosFiltrados$votos)
+t.test (dadosFiltrados$quantidade_despesas,dadosFiltrados$votos)
+t.test (dadosFiltrados$quantidade_fornecedores,dadosFiltrados$votos)
+t.test (dadosFiltrados$total_despesa,dadosFiltrados$votos)
+t.test (dadosFiltrados$media_despesa,dadosFiltrados$votos)
+t.test (dadosFiltrados$idade,dadosFiltrados$votos)
+t.test (dadosFiltrados$sexo,dadosFiltrados$votos)
+t.test (dadosFiltrados$grau,dadosFiltrados$votos)
+t.test (dadosFiltrados$estado_civil,dadosFiltrados$votos)
+```
+
+Como pudemos observar, todas as colunas restantes possuem um p-valor bem abaixo de 0.05, ou seja, a probabilidade da causalidade entre as demais variáveis e a quantidade de votos ser aleatória é muito baixa!
+
+E finalmente respondendo a pergunta: Um modelo de regressão linear múltipla com todas as variáveis não é plausível, tendo em vista que exitem variáveis que são únicas nos dados e por isso não apresenta correlação com a variável alvo.
+
+####Todas as variáveis são úteis para o modelo de regressão? Há variáveis redudantes? Justifique sua resposta em ambos os casos.
+
+Temos que selecionar apenas as melhores variáveis de predição e descartar as que não são interessantes, ou seja, as que nao predizem a quantidade de votos ou que são redundantes para o modelo. Para verificar as variáveis, vamos utilizar:
+
+```{r}
+corr = cor(dadosFiltrados[, 1:20])
+round(corr, 2)
+
+corrplot(corr, method="circle")
+```
+
+O método corrplot gera correlações entre as variáveis. E como podemos ver, há variáveis com correlação muito forte, o que sugere redundância como o caso de total_depesa x total_receita = 0.99, quantidade_fornecedores x quantidade_despesas = 0.93, quantiade_doadores x quantidade_doacoes = 0.86 e recursos_partidos x total_receita = 0.82.
+
+As variáveis total_despesa, quantidade_despesas serão retiradas.
+
+```{r}
+dadosFiltrados <- dadosFiltrados %>% select(-total_despesa, -quantidade_despesas)
+```
+
+Assim, respodendo a pergunta: Não, nem todas as variáveis são úteis pois há variáveis redundantes, como foi mostrado pela forte correlação entre elas.
+
+####No caso de haver variáveis pouco explicativas e/ou redudantes, construa um novo modelo sem essas variáveis e o compare ao modelo com todas as variáveis (e.g. em termos de R2 e RSE).
+
+Para o modelo com todas as variáveis:
+
+```{r}
+modeloCompleto <- lm(formula = votos ~ ., dadosFiltradosCompletos, na.action = na.omit)
+
+summary(modeloCompleto)
+```
+
+Temos que: RSE = 32.480 e R² ajustado = 0.4856
+__
+
+Já para o modelo com o número de variáveis reduzidas:
+
+```{r}
+modeloFiltrado <- lm(formula = votos ~ ., dadosFiltrados, na.action = na.omit)
+
+summary(modeloFiltrado)
+```
+
+Temos que: RSE = 33.010 e R² ajustado = 0.4686
+
+Ou seja, do modelo completo para o modelo com variáveis reduzidas o erro aumentou e o R² ajustado caiu. Ou seja, o novo modelo está mais generalista.
+
+####Analise plots de resíduos e verifique se há tendências nos erros.
+
+```{r}
+ggplot(modeloFiltrado, aes(x = .fitted, y = .resid)) + 
+  geom_point() + 
+  xlab("Ajustado") + 
+  ylab("Resíduos")
+```
+
+Observando o gráfico, percebemos que os resíduos possuem um padrão, mostrando que não que o modelo ainda não é o ideal.
+
+####Quais variáveis conseguem explicar melhor o número de votos?
+
+para esta tarefa, utilizaremos uma função do pacote do R chamado leaps que procura o melhor subconjuntos entre as variáveis x que predizem y.
+
+```{r}
+conjuntos <-
+    regsubsets(votos ~ .,
+               data = dadosFiltrados,
+               nbest = 1,       
+               nvmax = NULL,   
+               force.in = NULL, force.out = NULL,
+               method = "exhaustive",
+               really.big = T)
+
+summaryConjuntos <- summary(conjuntos)
+summaryConjuntos
+```
+
+Agora precisamos saber qual o melhor modelo entre os subconjuntos e o R² ajustado. (Lembrando que o R² ajustado  indica, em percentagem, o quanto o modelo consegue explicar os valores observados).
+
+```{r}
+escolhaModelo <- which.max(summaryConjuntos$adjr2)
+escolhaModelo
+```
+
+```{r}
+summaryConjuntos$which[escolhaModelo,]
+```
+
+Como podemos ver acima, nem todas as variáveis do modelo são boas para fazer a predição.
+
