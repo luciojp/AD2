@@ -1,0 +1,160 @@
+---
+title: "P02CP02V2AD2"
+author: "Antonio Lúcio"
+date: "17 de dezembro de 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning=FALSE, message=FALSE)
+library(readr)
+library(caret)
+library(dplyr)
+library(tidyr)
+```
+
+Este é um laboratório da disciplina de Análise de Dados 2 - UFCG - 2017.2
+
+- Sobre a tarefa: Construir modelos preditivos de regressão para a predição de votação de candidatos à Câmara Federal de Deputados
+
+- Sobre os dados: Foram obtidos através do TSE. Algumas das variáveis disponíveis: Nome do deputado, partido, estado, número de doaçãoes e doadores, total receita, quantidade de receitas, etc.
+
+Lendo e fazendo um pre-processamento dos dados:
+
+```{r}
+train <- read.csv("train.csv", encoding="UTF-8")
+test <- read.csv("test.csv", encoding="UTF-8")
+submission <- read.csv("sample_submission.csv")
+
+#Mudando os valores de NA para zero
+train[is.na(train)] <- 0
+test[is.na(test)] <- 0
+```
+
+
+1. Usando todas as variáveis disponíveis, tune (usando validação cruzada): (i) um modelo de regressão Ridge, (ii) um modelo de regressão Lasso e (iii) um modelo KNN. Para os modelos de regressão linear, o parâmetro a ser tunado é o lambda (penalização dos coeficientes) e o KNN o número de vizinhos.
+```{r}
+# K-fold cross-validation -> 10-fold CV
+fitControl <- trainControl(method = "cv",
+                    number = 5,
+                    search= "random")
+
+# variação do lambda
+lambdaGrid <- expand.grid(lambda = 10^seq(2, -10, length=30))
+
+# variação do fraction
+fractionGrid <- expand.grid(fraction = seq(0.001, 1, length = 30))
+
+# variação no número de vizinho
+neighborsGrid <- expand.grid(k = seq(1, 30, length=30))
+
+# retirando variáveis que não são importantes (explicação dada no lab passado)
+train_dadosFiltrados <- train %>% select(-nome, -cargo, -setor_economico_receita, -setor_economico_despesa, -numero_cadidato)
+test_dadosFiltrados <- test %>% select(-nome, -cargo, -setor_economico_receita, -setor_economico_despesa, -numero_cadidato)
+
+```
+
+
+```{r}
+#Treinando os modelos
+
+# (i) modelo de regressão Ridge
+model_ridge <- train(votos ~ .,
+          data = train_dadosFiltrados,
+          method = "ridge", 
+          trControl = fitControl,
+          tuneGrid = lambdaGrid,
+          na.action = na.omit)
+
+model_ridge
+
+# (ii) modelo de regressão Lasso
+model_lasso <- train(votos ~ ., 
+                    data = train_dadosFiltrados, 
+                    method = "lasso", 
+                    trControl = fitControl,
+                    tuneGrid = fractionGrid,
+                    na.action = na.omit)
+
+model_lasso
+
+# (iii) modelo usando KNN         MLEHOR
+model_knn <- train(votos ~ ., 
+                    data = train_dadosFiltrados, 
+                    method = "knn", 
+                    trControl = fitControl,
+                    tuneGrid = neighborsGrid,
+                    na.action = na.omit)
+
+model_knn
+
+```
+2) Compare os três modelos em termos do erro RMSE de validação cruzada.
+
+Temos os seguintes resultados:
+
+- Modelo de regressão ridge: Menor RMSE é 32161.53 quando lambda  = 0.04893901
+
+- Modelo de regressão lasso: Menor RMSE é 32856.02 quando fração = 0.13879310
+
+- Modelo KNN: Menor RMSE é 30909.21 quando k = 10
+
+```{r}
+ggplot(model_ridge)
+ggplot(model_lasso)
+ggplot(model_knn)
+```
+
+- Método Ridge: O gráfico nos mostra uma curva crescente que tem início quando o parâmetro "lambda" é 0. Mostrando que o melhor modelo seria o modelo inicial, sem nenhuma variável penalizada.
+
+- Método Lasso: Aqui nos vemos que o parâmetro "fraction" que varia entre 0 e 1 ter um RMSE muito alto para valores do fraction próximos a 0 e depois se estabiliza quando vai chegando próximo de 0.5.
+
+- Método KNN: Temos para este modelo que com K próximo de 0 tem um RMSE muito alto e um ponto de inflexão com k = 10. Ou seja, aumentar mais vizinhos mais que isso não ajuda mais o modelo.
+
+
+3) Quais as variáveis mais importantes segundo o modelo de regressão Ridge e Lasso? Variáveis foram descartadas pelo Lasso? Quais?
+
+As variáveis mais importantes segundo o modelo Ridge:
+
+```{r}
+#Análise Ridge
+ggplot(varImp(model_ridge))
+
+#Análise Lasso
+ggplot(varImp(model_lasso))
+
+```
+
+Basicamente, para ambos os modelos, as mesmas variáveis tem a mesma importância. Sendo que as vairáveis UF, Recursos_proprios e recursos_de_outros_candidatos.comites não tiverem importância alguma. Por não ter importância as variáveis citadas, creio que foram descartadas do modelo.
+
+4)Re-treine o melhor modelo (usando os melhores valores de parâmetros encontrados em todos os dados, sem usar validação cruzada).
+
+Como visto anteriormente, o melhor modelo foi o KNN com k=10. Então, vamos retreiná-lo.
+```{r}
+
+#grid contendo apenas o melhor valor para k (10)
+bestK <- expand.grid(k = seq(10, 10, length=1))
+
+#melhor modelo
+best_model <- train(votos ~ ., 
+                    data = train_dadosFiltrados, 
+                    method = "knn",
+                    tuneGrid = bestK,
+                    na.action = na.omit)
+
+```
+
+5. Use esse último modelo treinado para prever os dados de teste disponíveis no challenge que criamos na plataforma Kaggle.
+
+
+```{r}
+submission_predict <- predict(best_model, test_dadosFiltrados)
+
+for(i in 1:length(submission_predict)){
+  submission$votos[i] = abs(submission_predict[i])
+}
+
+write.csv(submission, file = "AntonioLucioPredict.csv", row.names = FALSE)
+
+```
+

@@ -1,0 +1,40 @@
+---
+title: "PredicaoEleicao"
+author: "Antonio Lúcio"
+date: "28 de fevereiro de 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning=FALSE, message=FALSE)
+library(readr)
+library(caret)
+library(dplyr)
+library(tidyr)
+```
+
+
+```{r}
+train <- read.csv("train.csv", encoding="UTF-8")
+test <- read.csv("test.csv", encoding="UTF-8")
+submission <- read.csv("sample_submission.csv")
+```
+
+```{r}
+#Pre-processamento dos dados
+
+##Mudando os valores de NA para zero
+train[is.na(train)] <- 0
+test[is.na(test)] <- 0
+
+##Retirando variáveis irrelevantes
+train <- train %>% select(-ID, -nome, -numero_cadidato, -descricao_ocupacao, -estado_civil)
+test <- test %>% select(-ID, -nome, -numero_cadidato, -descricao_ocupacao, -estado_civil)
+
+
+```
+
+```{r}
+
+```
+
