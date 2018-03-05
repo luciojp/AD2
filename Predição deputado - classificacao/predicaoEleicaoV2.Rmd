@@ -1,0 +1,373 @@
+---
+title: "predicaoEleivaoV2"
+author: "Antonio Lúcio"
+date: "2 de março de 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning=FALSE, message=FALSE)
+options(rpubs.upload.method = "internal")
+library(readr)
+library(caret)
+library(dplyr)
+library(tidyr)
+library(highcharter)
+library(unbalanced)
+library(rpart)
+library(rpart.plot) 
+library(ROSE)
+library(randomForest)
+```
+
+Carregando os dados
+```{r}
+train <- read.csv("train.csv", encoding="UTF-8")
+test <- read.csv("test.csv", encoding="UTF-8")
+submission <- read.csv("sample_submission.csv")
+```
+
+
+```{r}
+#Pre-processamento dos dados
+
+##Mudando os valores de NA para zero
+train[is.na(train)] <- 0
+test[is.na(test)] <- 0
+
+##Retirando variáveis irrelevantes
+train <- train %>% select(-ID, -nome, -numero_cadidato, -descricao_ocupacao, -estado_civil, -setor_economico_receita, 
+                        -setor_economico_despesa, -descricao_ocupacao)
+test <- test %>% select(-ID, -nome, -numero_cadidato, -descricao_ocupacao, -estado_civil, -setor_economico_receita, 
+                        -setor_economico_despesa, -descricao_ocupacao)
+```
+
+#### 1. Há desbalanceamento das classes (isto é, uma classe tem muito mais instâncias que outra)? Em que proporção? Quais efeitos colaterais o desbalanceamento de classes pode causar no classificador?
+
+
+Precisamos contar as instâncias das classes de situacao_final e verificar como está o balanceamento:
+```{r}
+
+balanceamento <- train %>% select(situacao_final) %>% 
+  group_by(situacao_final) %>% count(situacao_final)
+
+hchart(balanceamento, "bar", hcaes(x = situacao_final, y = n)) %>%
+  hc_xAxis(
+    title = list(text = "Situação final")
+    ) %>%
+  hc_yAxis(
+    title = list(text = "Quantidade de canditos")
+  ) %>% 
+  hc_title(
+    text = "Quantidade de candidatos que foram eleitos e não eleitos"
+  )
+
+```
+
+
+Como podemos observar no gráfico acima, há um desbalanceamente enorme. A quantidade de canidatos não eleitos é praticamente 10x maior do que a de eleitos. Isso interfere diretamente na acurácia dos modelos, tendo em vista que o classificador vai tender para "nao_eleito"
+
+O pacote ROSE nos ajuda a gerar dados artificiais com base em métodos de amostragem e smoothed bootstrap.
+
+```{r}
+#começando com oversampling para equilibrar os dados
+
+data_balanced_over <- ovun.sample(situacao_final ~., 
+                                  data = train, 
+                                  method = "over",
+                                  N = 7438)$data
+
+table(data_balanced_over$situacao_final)
+
+```
+
+Agora podemos obsersar que temos a mesma proporção de eleitos e não eleitos.
+
+
+```{r}
+#agora fazendo undersampling para obter a mesma proporção.
+
+data_balanced_under <- ovun.sample(situacao_final~.,
+                                   data = train,
+                                   method = "under",
+                                   N = 832)$data
+
+table(data_balanced_under$situacao_final)
+
+```
+
+Agora também temos a mesma proporção de eleitos e não eleitos.
+Porem perdemos informações significativas da amostra nestes métodos. Para isso, vamos utilizar o método "both"
+
+```{r}
+
+data_balanced_both <- ovun.sample(situacao_final~.,
+                                  data = train,
+                                  method = "both",
+                                  p=0.5,
+                                  N = 4135,
+                                  seed = 1)$data
+
+table(data_balanced_both$situacao_final)
+
+```
+
+Os dados gerados pelo excesso de amostragem prevêem a quantidade de observações repetidas.
+Os dados gerados pela sub-amostragem são privados de informações importantes dos dados originais.
+O que leva a imprecisões no resultado. Para enfrentar tal problema, ROSE também nos ajuda a gerar dados de forma sintética.
+Estes dados gerados usando ROSE são considerados para fornecer melhor estimativa dos dados originais.
+
+```{r}
+data.rose <- ROSE(situacao_final ~.,
+                  data = train,
+                  seed = 1)$data
+
+table(data.rose$situacao_final)
+
+```
+
+Agora que temos o conjuntado de treino equilibrado utilizando 4 técnicas diferentes, vamos calcular o modelo e avaliar sua precisão.
+
+```{r}
+
+##Particionando os dados de treino em treino e teste
+data.rose.partition <- createDataPartition(y = data.rose$situacao_final, p=0.75, list=FALSE)
+data_balanced_over_partition <- createDataPartition(y = data_balanced_over$situacao_final, p=0.75, list=FALSE)
+data_balanced_under_partition <- createDataPartition(y = data_balanced_under$situacao_final, p=0.75, list=FALSE)
+data_balanced_both_partition <- createDataPartition(y = data_balanced_both$situacao_final, p=0.75, list=FALSE)
+
+## Setando a seed para fazer a partição reproduzível
+set.seed(9560)
+
+## separando o dataframe balanceado em treino e teste
+
+data.rose.train <- data.rose[data.rose.partition,]
+data.rose.test <- data.rose[-data.rose.partition,]
+
+data_balanced_over_train <- data_balanced_over[data_balanced_over_partition,]
+data_balanced_over_test <- data_balanced_over[-data_balanced_over_partition,]
+
+data_balanced_under_train <- data_balanced_under[data_balanced_under_partition,]
+data_balanced_under_test <- data_balanced_under[-data_balanced_under_partition,]
+
+data_balanced_both_train <- data_balanced_both[data_balanced_both_partition,]
+data_balanced_both_test <- data_balanced_both[-data_balanced_both_partition,]
+
+#construindo modelos de árvore de decisão
+
+tree.rose <- rpart(situacao_final ~., data = data.rose.train)
+tree.over <- rpart(situacao_final ~., data = data_balanced_over_train)
+tree.under <- rpart(situacao_final ~., data = data_balanced_under_train)
+tree.both <- rpart(situacao_final ~., data = data_balanced_both_train)
+
+#Fazendo as predições
+
+pred.tree.rose <- predict(tree.rose, newdata = data.rose.test)
+pred.tree.over <- predict(tree.over, newdata = data_balanced_over_test)
+pred.tree.under <- predict(tree.under, newdata = data_balanced_under_test)
+pred.tree.both <- predict(tree.both, newdata = data_balanced_both_test)
+
+
+#avaliando a precisão das predições
+
+#ROSE
+roc.curve(data.rose.test$situacao_final, pred.tree.rose[,2])
+
+#Over
+roc.curve(data_balanced_over_test$situacao_final, pred.tree.over[,2])
+
+#Under
+roc.curve(data_balanced_under_test$situacao_final, pred.tree.under[,2])
+
+#Both
+roc.curve(data_balanced_both_test$situacao_final, pred.tree.both[,2])
+
+```
+
+Portanto, obtemos maior precisão a partir de dados obtidos usando o algoritmo ROSE.
+Agora que temos o balanceamento realizado, podemos dar continuidade.
+
+OBS: Por problemas de não conseguir resposta em tempo hábil para treinar o modelo Adaboost utilizando os dados obtidos usando o algoritmo ROSE (Passou mais de 3h rodando e não tive resposta, R usando 50% da CPU e 1GB de RAM), tive que utilizar o DF balanceado via Under, que tem menos observações e assim conseguindo obter alguma resposta (Depois de 40 minutos rodando). Por problemas de falta de hardware, tive que escolher um menos preciso.
+
+####Treine: um modelo de regressão logística, uma árvore de decisão e um modelo de adaboost. Tune esses modelos usando validação cruzada e controle overfitting se necessário, considerando as particularidades de cada modelo. 
+
+
+```{r}
+
+# usando validação cruzada 10-fold com 5 repetições
+fitControl <- trainControl(method = "repeatedcv",
+                           number = 10,
+                           repeats = 5,
+                           classProbs = TRUE)
+
+#Árvore de decisão já foi feito anteriormente
+
+
+#Modelo de regressão logística
+modelo.glm <- glm(formula = situacao_final ~., data=data_balanced_under_train, family="binomial")
+summary(modelo.glm)
+
+
+#Modelo Adaboost
+modelo.ada <- caret::train(situacao_final ~.,
+                data=data_balanced_under_train,
+                method = "adaboost",
+                trControl = fitControl)
+
+modelo.ada
+
+
+#Modelo Random Forest
+modelo.forest <- randomForest::randomForest(situacao_final ~.,
+                                            data_balanced_under_train,
+                                            ntree = 500)
+
+
+modelo.forest
+
+```
+
+####3. Reporte acurácia, precision, recall e f-measure no treino e validação. Como você avalia os resultados? Justifique sua resposta.
+
+Será utilizado o modelo Adaboost para análise.
+
+```{r}
+data_balanced_under_test$predicao <- predict(modelo.ada, data_balanced_under_test)
+
+# vezes que o modelo acertou na predição de que o candidato seria eleito
+TP <- data_balanced_under_test %>% filter(situacao_final == "eleito", predicao == "eleito") %>% nrow()
+
+# vezes que o modelo acertou na predição de que o candidato seria nao_eleito
+TN <- data_balanced_under_test %>% filter(situacao_final == "nao_eleito" , predicao == "nao_eleito" ) %>% nrow()
+
+# vezes que o modelo errou na predição de que o candidato seria nao_eleito
+FP <- data_balanced_under_test %>% filter(situacao_final == "nao_eleito" , predicao == "eleito") %>% nrow()
+
+# vezes que o modelo errou na predição de que o candidato seria eleito
+FN <- data_balanced_under_test %>% filter(situacao_final == "eleito", predicao == "nao_eleito" ) %>% nrow()
+
+
+# proporção de observações corretamente classificadas
+accuracy <- (TP + TN)/(TP + TN + FP + FN) 
+
+# quantas das observaçoes preditas como positivas são realmente positivas
+precision <- TP / (TP + FP)
+
+# quantas das observaçoes positivas foram corretamente classificadas
+recall <- TP / (TP + FN)
+
+# média harmônica da precisão e recall
+f_measure <- 2 * (precision * recall) / (precision + recall)
+
+f_measure
+accuracy
+precision
+recall
+
+
+confusionMatrix(data_balanced_under_test$predicao, data_balanced_under_test$situacao_final)
+```
+
+No treino, obtivemos uma acurácia de 0.894, enquanto no validação caiu para 0.8798. 
+Avalio como o modelo tendo um bom resultado, tendo em vista que acertou na grande maioria das vezes.
+
+```{r}
+predicao <- predict(modelo.ada, test)
+
+for(i in 1:length(predicao)){
+  submission$prediction[i] = predicao[i]
+}
+
+write.csv(submission, file = "AntonioLucioV2Predict3.csv", row.names = FALSE)
+
+```
+
+####4. Interprete as saídas dos modelos. Quais atributos parecem ser mais importantes de acordo com cada modelo? Crie pelo menos um novo atributo que não está nos dados originais e estude o impacto desse atributo.
+
+As 10 mais importantes para o modelo de regressão logística:
+```{r}
+#Importancia das variáveis modelo de regressão logistica
+impGlm <- varImp(modelo.glm)
+rownames(impGlm)[order(impGlm$Overall, decreasing=TRUE)[1:10]]
+```
+
+
+As mais importantes para o modelo Adaboost
+```{r}
+#Importancia das variáveis modelo Adaboost
+varImp(modelo.ada)
+
+```
+
+As mais importantes para o modelo Random Forest
+```{r}
+#Importancia das variáveis modelo Random Forest
+varImp(modelo.forest)
+
+```
+
+As mais importantes para o modelo de arvore de decisão
+```{r}
+varImp(tree.under)
+```
+
+Irei criar uma nova variável chamada isNordeste, que caso possua 1 como resposta, quer dizer que o candidato é do nordeste.
+```{r}
+data_balanced_under_train$isNordeste <- ifelse(data_balanced_under_train$UF 
+                                               %in% c("MA", "PI", "CE", "RN", "PB", "PE", "AL", "SE", "BA"), 1, 0)
+data_balanced_under_test$isNordeste <- ifelse(data_balanced_under_test$UF 
+                                              %in% c("MA", "PI", "CE", "RN", "PB", "PE", "AL", "SE", "BA"), 1, 0)
+```
+
+
+```{r}
+#Retreinando o modelo de regressão logística
+
+modelo.glm.retrain <- glm(formula = situacao_final ~., data=data_balanced_under_train, family="binomial")
+summary(modelo.glm.retrain)
+
+#Vendo como ficou após o retreino
+impGlmRetrain <- varImp(modelo.glm.retrain)
+rownames(impGlmRetrain)[order(impGlmRetrain$Overall, decreasing=TRUE)[1:10]]
+
+```
+
+No modelo de regressão logística, a insersão da nova variável não teve impacto significativo.
+
+
+```{r}
+#retreinando o modelo Adaboost
+modelo.ada.retrain <- caret::train(situacao_final ~.,
+                data=data_balanced_under_train,
+                method = "adaboost",
+                trControl = fitControl)
+
+modelo.ada.retrain
+
+varImp(modelo.ada.retrain)
+```
+
+No modelo Adaboost também não houve impacto significativo.
+
+```{r}
+
+#Retreinando modelo Random Forest
+modelo.forest.retrain <- randomForest::randomForest(situacao_final ~.,
+                                            data_balanced_under_train,
+                                            ntree = 500)
+
+
+modelo.forest.retrain
+varImp(modelo.forest.retrain)
+
+```
+
+Novamente vemos que não houve impacto significativo. 
+
+```{r}
+#retreinando o modelo de árvore
+tree.under.retrain <- rpart(situacao_final ~., data = data_balanced_under_train)
+varImp(tree.under.retrain)
+```
+
+Conclusão: Em nenhum dos modelos houve impacto na insersão de uma nova variável
